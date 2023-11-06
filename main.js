@@ -5,16 +5,25 @@ const axios = require('axios');
 const app = express();
 const StringDecoder = require('string_decoder').StringDecoder;
 
+const https = require('https');
+
+// HOW DID YOU EVEN THINK ABOUT CHECKING FOR THIS, SG DEVS??!?! Taking gatekeeping lessons from /aicg/?
+// Not that it matters much though.
+const agent = new https.Agent({
+  ciphers: 'TLS_AES_256_GCM_SHA384'
+});
+
+axios.defaults.httpsAgent = agent;
+
 const bodyParser = require('body-parser');
 app.use(bodyParser.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({limit: '100mb', extended: true}));
 
 const API_TOKEN = process.env.API_TOKEN;
 
-function handleError(res, isStream) {
+function handleError(res, isStream, errMsg = "\n**Received an error during the request, please check sg-proxy logs!**") {
   // If the request hasn't finished, notify the user that there was an error and finish
   // the request properly, so that ST isn't left hanging.
-  const errMsg = "\n**Received an error during the request, please check sg-proxy logs!**";
   let jsonResp = {completion: errMsg, stop_reason: "stop_sequence"};
   if (!res.writableEnded) {
     if (isStream) {
@@ -129,8 +138,14 @@ app.post('/v1/complete', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Got an error in the main route:\n", error);
-    handleError(res, isStream);
+    if (error.response && error.response.status === 429) {
+      console.error("Got a 429 (Too Many Requests), seems like you've hit your ratelimit for the day.");
+      handleError(res, isStream, "\n**You've hit your ratelimit for the day, use a different account or wait.**")
+    }
+    else {
+      console.error("Got an error in the main route:\n", error);
+      handleError(res, isStream);
+    }
   }
 });
 
